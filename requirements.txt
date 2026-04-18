@@ -1,0 +1,8 @@
+pandas          # For reading SQL tables and data manipulation
+networkx        # The core graph library
+sqlalchemy      # The database engine to help pandas talk to SQLite
+streamlit       # Chat UI for the Agnes agent
+google-genai    # New Gemini SDK (from google import genai)
+python-dotenv   # Loads GOOGLE_API_KEY from .env
+pyvis           # HTML graph visualization
+tabulate        # Required for DataFrame.to_markdown()
