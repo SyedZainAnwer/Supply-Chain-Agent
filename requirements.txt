@@ -6,3 +6,6 @@ google-genai    # New Gemini SDK (from google import genai)
 python-dotenv   # Loads GOOGLE_API_KEY from .env
 pyvis           # HTML graph visualization
 tabulate        # Required for DataFrame.to_markdown()
+instructor      # Structured LLM outputs (Pydantic)
+jsonref         # Required by instructor's Gemini schema mapper
+tavily-python   # Web search + extract for compliance comparison
