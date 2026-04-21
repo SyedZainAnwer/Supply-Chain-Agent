@@ -18,10 +18,16 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from compliance_compare import (
+    ProductProfile,
+    build_decision_matrix,
+    load_compliance_data,
+)
+
 load_dotenv()
 
 DB_PATH = Path("./db/db.sqlite")
-MODEL_NAME = "gemini-2.5-pro"
+MODEL_NAME = "gemini-3.1-flash-lite-preview"
 
 SYSTEM_INSTRUCTION_TEMPLATE = """You are Agnes, a Senior Supply Chain Manager.
 
@@ -197,35 +203,7 @@ def _generate(
         return f"Gemini call failed: {e}"
 
 
-def main() -> None:
-    st.set_page_config(page_title="Agnes — Supply Chain Agent",
-                       page_icon="📦", layout="wide")
-    st.title("📦 Agnes — Supply Chain Agent")
-    st.caption(f"{MODEL_NAME} · long-context Master Sourcing View")
-
-    with st.sidebar:
-        st.subheader("Configuration")
-        if _api_key():
-            st.success("GOOGLE_API_KEY loaded (st.secrets / .env)")
-        else:
-            st.error("GOOGLE_API_KEY missing. Add to `.env` or `.streamlit/secrets.toml`.")
-        use_web = st.toggle(
-            "Enable Google Search tool",
-            value=False,
-            help="Grounds answers with live Google Search. Local data still wins for SKU specifics.",
-        )
-        if st.button("Reset chat"):
-            st.session_state.pop("history", None)
-            st.rerun()
-
-    if not DB_PATH.exists():
-        st.error(f"Database not found at {DB_PATH}")
-        return
-
-    view = load_master_view(str(DB_PATH))
-    view_md = view_to_markdown(view)
-    system_instruction = SYSTEM_INSTRUCTION_TEMPLATE.format(view_markdown=view_md)
-
+def _render_chat(view: pd.DataFrame, view_md: str, system_instruction: str, use_web: bool) -> None:
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("BOM-component rows", f"{len(view):,}")
     col2.metric("Distinct produced SKUs", f"{view['ProducedSKU'].nunique():,}")
@@ -262,6 +240,122 @@ def main() -> None:
             answer = _generate(client, history, system_instruction, use_web)
         st.markdown(answer)
         history.append({"role": "assistant", "content": answer})
+
+
+def _render_compliance_audit(view: pd.DataFrame) -> None:
+    st.subheader("🧪 Supplier Compliance Audit")
+    st.caption(
+        "The SQLite Master View lacks supplier-level compliance claims for most products, "
+        "so this tab runs on curated profiles from `compliance_json_data.json`."
+    )
+
+    try:
+        data = load_compliance_data()
+    except Exception as e:
+        st.error(f"Failed to load compliance dummy data: {e}")
+        return
+    if not data:
+        st.info("No products configured in `compliance_json_data.json`.")
+        return
+
+    product_name = st.selectbox("Product to audit", sorted(data.keys()))
+    entry = data[product_name]
+    benchmark: ProductProfile = entry["benchmark"]
+    candidates: list[ProductProfile] = entry["candidates"]
+
+    col_b, col_db = st.columns(2)
+    with col_b:
+        st.markdown("**Benchmark (current vendor)**")
+        st.json(benchmark.model_dump())
+    with col_db:
+        st.markdown("**Matching Master View rows**")
+        matches = view[
+            view["ConsumedSKU"].str.contains(product_name, case=False, na=False)
+            | view["ProducedSKU"].str.contains(product_name, case=False, na=False)
+        ]
+        if matches.empty:
+            st.caption("No SQLite rows reference this product — expected, hence dummy data.")
+        else:
+            st.dataframe(matches, use_container_width=True, hide_index=True)
+
+    st.markdown("**Market candidates**")
+    st.dataframe(
+        pd.DataFrame([c.model_dump() for c in candidates]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    cache_key = f"compliance_matrix::{product_name}"
+    if st.button("Run decision matrix", type="primary"):
+        with st.spinner("Agnes is comparing certifications…"):
+            try:
+                st.session_state[cache_key] = build_decision_matrix(benchmark, candidates)
+            except Exception as e:
+                st.error(f"Compliance comparison failed: {e}")
+                return
+
+    ranked = st.session_state.get(cache_key)
+    if not ranked:
+        return
+
+    matrix_df = pd.DataFrame([
+        {
+            "Rank": r["rank"],
+            "Supplier": r["supplier"],
+            "Product": r["product"],
+            "Match": f"{r['match_score']:.0%}",
+            "Price": r["price"] or "N/A",
+            "Selection Index": f"{r['selection_index']:.2f}",
+            "Verdict": r["verdict"],
+        }
+        for r in ranked
+    ])
+    st.markdown("**🎯 Decision Matrix**")
+    st.dataframe(matrix_df, use_container_width=True, hide_index=True)
+
+    for r in ranked:
+        with st.expander(f"#{r['rank']} · {r['supplier']} — {r['verdict']}"):
+            st.markdown(f"**Reasoning:** {r['reasoning']}")
+            if r["missing_claims"]:
+                st.markdown(f"**Missing vs. benchmark:** {', '.join(r['missing_claims'])}")
+            if r["extra_claims"]:
+                st.markdown(f"**Extra (beyond benchmark):** {', '.join(r['extra_claims'])}")
+
+
+def main() -> None:
+    st.set_page_config(page_title="Agnes — Supply Chain Agent",
+                       page_icon="📦", layout="wide")
+    st.title("📦 Agnes — Supply Chain Agent")
+    st.caption(f"{MODEL_NAME} · long-context Master Sourcing View")
+
+    with st.sidebar:
+        st.subheader("Configuration")
+        if _api_key():
+            st.success("GOOGLE_API_KEY loaded (st.secrets / .env)")
+        else:
+            st.error("GOOGLE_API_KEY missing. Add to `.env` or `.streamlit/secrets.toml`.")
+        use_web = st.toggle(
+            "Enable Google Search tool",
+            value=False,
+            help="Grounds answers with live Google Search. Local data still wins for SKU specifics.",
+        )
+        if st.button("Reset chat"):
+            st.session_state.pop("history", None)
+            st.rerun()
+
+    if not DB_PATH.exists():
+        st.error(f"Database not found at {DB_PATH}")
+        return
+
+    view = load_master_view(str(DB_PATH))
+    view_md = view_to_markdown(view)
+    system_instruction = SYSTEM_INSTRUCTION_TEMPLATE.format(view_markdown=view_md)
+
+    tab_chat, tab_compliance = st.tabs(["💬 Agnes Chat", "🧪 Compliance Audit"])
+    with tab_chat:
+        _render_chat(view, view_md, system_instruction, use_web)
+    with tab_compliance:
+        _render_compliance_audit(view)
 
 
 if __name__ == "__main__":

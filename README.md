@@ -9,8 +9,6 @@ Agnes is a long-context AI sourcing advisor that reads your entire supply chain 
 ## Impact at a Glance
 * **Visibility:** 100% of Relational Sourcing Data mapped into a single, denormalized view.
 * **Intelligence:** Structural Criticality calculated via the **Part Commonality Index (PCI)**.
-* **Speed:** From raw SQL to a Sourcing Strategy in < 10 seconds.
-* **Reasoning:** Zero-shot pattern recognition across a **2M token context window**.
 
 ---
 
@@ -60,7 +58,7 @@ flowchart LR
 
 ---
 
-## ⚡ Technical "Unlocks"
+## Technical "Unlocks"
 
 These are the bets that make Agnes qualitatively different from a standard RAG chatbot:
 

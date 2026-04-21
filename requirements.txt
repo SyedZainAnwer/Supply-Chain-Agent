@@ -9,3 +9,4 @@ tabulate        # Required for DataFrame.to_markdown()
 instructor      # Structured LLM outputs (Pydantic)
 jsonref         # Required by instructor's Gemini schema mapper
 tavily-python   # Web search + extract for compliance comparison
+pulp            # Linear Programming solver for supplier allocation
